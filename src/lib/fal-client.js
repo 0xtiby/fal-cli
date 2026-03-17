@@ -1,3 +1,4 @@
+import { fal } from '@fal-ai/client';
 import { loadConfig } from '../config.js';
 
 /** @typedef {Object} Model
@@ -120,6 +121,46 @@ export async function listCategories(options = {}) {
   const models = await listModels(undefined, options);
   const categories = [...new Set(models.map((m) => m.category))].sort();
   return categories;
+}
+
+/**
+ * Generate an image using fal.ai's queue-based subscribe API.
+ * @param {{ model: string, prompt: string, image_size?: string, seed?: number }} input
+ * @param {(status: { status: string, position?: number }) => void} [onStatus]
+ * @param {{ _fal?: typeof fal }} [options] - Internal options for testing
+ * @returns {Promise<{ url: string, width: number, height: number, seed: number }>}
+ */
+export async function generateImage(input, onStatus, options = {}) {
+  const falClient = options._fal ?? fal;
+
+  const apiInput = { prompt: input.prompt };
+  if (input.image_size) {
+    apiInput.image_size = input.image_size;
+  }
+  if (input.seed !== undefined) {
+    apiInput.seed = input.seed;
+  }
+
+  const result = await falClient.subscribe(input.model, {
+    input: apiInput,
+    onQueueUpdate: onStatus
+      ? (update) => {
+          const status = { status: update.status };
+          if (update.queue_position !== undefined) {
+            status.position = update.queue_position;
+          }
+          onStatus(status);
+        }
+      : undefined,
+  });
+
+  const image = result.data.images[0];
+  return {
+    url: image.url,
+    width: image.width,
+    height: image.height,
+    seed: result.data.seed,
+  };
 }
 
 /**

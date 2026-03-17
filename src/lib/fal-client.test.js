@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { listModels, listCategories, clearCache } from './fal-client.js';
+import { listModels, listCategories, clearCache, generateImage } from './fal-client.js';
 
 /**
  * Create a mock fetch function that returns predefined responses.
@@ -226,5 +226,153 @@ describe('listCategories', () => {
     const categories = await listCategories({ ...TEST_OPTIONS, _fetch: fetchFn });
 
     assert.deepEqual(categories, ['image-to-image', 'text-to-image', 'training']);
+  });
+});
+
+/**
+ * Create a mock fal client for testing generateImage.
+ * @param {{ data: any }} result - The result fal.subscribe resolves to
+ * @returns {{ fal: { subscribe: Function }, calls: Array }}
+ */
+function mockFal(result) {
+  const calls = [];
+  return {
+    fal: {
+      subscribe: async (endpointId, options) => {
+        calls.push({ endpointId, options });
+        if (options.onQueueUpdate) {
+          for (const update of result._queueUpdates ?? []) {
+            options.onQueueUpdate(update);
+          }
+        }
+        return { data: result.data };
+      },
+    },
+    calls,
+  };
+}
+
+describe('generateImage', () => {
+  it('returns correct shape from mocked fal.subscribe', async () => {
+    const { fal: mockClient } = mockFal({
+      data: {
+        images: [{ url: 'https://fal.ai/img/1.png', width: 1024, height: 768 }],
+        seed: 42,
+      },
+    });
+
+    const result = await generateImage(
+      { model: 'fal-ai/flux/schnell', prompt: 'a cat' },
+      undefined,
+      { _fal: mockClient },
+    );
+
+    assert.deepEqual(result, {
+      url: 'https://fal.ai/img/1.png',
+      width: 1024,
+      height: 768,
+      seed: 42,
+    });
+  });
+
+  it('calls onStatus with queue position during IN_QUEUE', async () => {
+    const statuses = [];
+    const { fal: mockClient } = mockFal({
+      _queueUpdates: [
+        { status: 'IN_QUEUE', queue_position: 3 },
+      ],
+      data: {
+        images: [{ url: 'https://fal.ai/img/1.png', width: 512, height: 512 }],
+        seed: 1,
+      },
+    });
+
+    await generateImage(
+      { model: 'fal-ai/flux/schnell', prompt: 'a cat' },
+      (s) => statuses.push(s),
+      { _fal: mockClient },
+    );
+
+    assert.equal(statuses.length, 1);
+    assert.deepEqual(statuses[0], { status: 'IN_QUEUE', position: 3 });
+  });
+
+  it('calls onStatus with IN_PROGRESS status', async () => {
+    const statuses = [];
+    const { fal: mockClient } = mockFal({
+      _queueUpdates: [
+        { status: 'IN_QUEUE', queue_position: 1 },
+        { status: 'IN_PROGRESS' },
+      ],
+      data: {
+        images: [{ url: 'https://fal.ai/img/1.png', width: 512, height: 512 }],
+        seed: 1,
+      },
+    });
+
+    await generateImage(
+      { model: 'fal-ai/flux/schnell', prompt: 'a cat' },
+      (s) => statuses.push(s),
+      { _fal: mockClient },
+    );
+
+    assert.equal(statuses.length, 2);
+    assert.deepEqual(statuses[1], { status: 'IN_PROGRESS' });
+  });
+
+  it('passes seed to API when provided', async () => {
+    const { fal: mockClient, calls } = mockFal({
+      data: {
+        images: [{ url: 'https://fal.ai/img/1.png', width: 512, height: 512 }],
+        seed: 99,
+      },
+    });
+
+    await generateImage(
+      { model: 'fal-ai/flux/schnell', prompt: 'a dog', seed: 99 },
+      undefined,
+      { _fal: mockClient },
+    );
+
+    assert.equal(calls[0].options.input.seed, 99);
+  });
+
+  it('omits seed from API input when not provided', async () => {
+    const { fal: mockClient, calls } = mockFal({
+      data: {
+        images: [{ url: 'https://fal.ai/img/1.png', width: 512, height: 512 }],
+        seed: 42,
+      },
+    });
+
+    await generateImage(
+      { model: 'fal-ai/flux/schnell', prompt: 'a dog' },
+      undefined,
+      { _fal: mockClient },
+    );
+
+    assert.equal('seed' in calls[0].options.input, false);
+  });
+
+  it('returns first image only from images[] array', async () => {
+    const { fal: mockClient } = mockFal({
+      data: {
+        images: [
+          { url: 'https://fal.ai/img/first.png', width: 1024, height: 1024 },
+          { url: 'https://fal.ai/img/second.png', width: 512, height: 512 },
+        ],
+        seed: 7,
+      },
+    });
+
+    const result = await generateImage(
+      { model: 'fal-ai/flux/schnell', prompt: 'a bird' },
+      undefined,
+      { _fal: mockClient },
+    );
+
+    assert.equal(result.url, 'https://fal.ai/img/first.png');
+    assert.equal(result.width, 1024);
+    assert.equal(result.height, 1024);
   });
 });
