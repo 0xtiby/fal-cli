@@ -16,6 +16,7 @@
     "@fal-ai/client": "^1.9.4",
     "@inquirer/prompts": "^8.3.2",
     "dotenv": "^17.3.1",
-    "incur": "^0.3.4"
+    "incur": "^0.3.4",
+    "ora": "^9.3.0"
   }
 }
