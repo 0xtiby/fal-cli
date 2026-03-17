@@ -36,6 +36,8 @@ function makeDeps(overrides = {}) {
       promptModel: mock.fn(async () => 'fal-ai/flux/schnell'),
       promptText: mock.fn(async () => 'a beautiful sunset'),
       promptSize: mock.fn(async () => 'landscape_4_3'),
+      promptContinue: mock.fn(async () => false),
+      promptKeepModel: mock.fn(async () => true),
       ora: oraFn,
       stdout,
       ...overrides,
@@ -150,5 +152,78 @@ describe('interactive command', () => {
       prompt: 'a beautiful sunset',
       image_size: 'landscape_4_3',
     });
+  });
+
+  it('loops when promptContinue returns true and keepModel true', async () => {
+    let continueCallCount = 0;
+    const { deps } = makeDeps({
+      promptContinue: mock.fn(async () => {
+        continueCallCount++;
+        return continueCallCount <= 2; // continue twice, then stop
+      }),
+      promptKeepModel: mock.fn(async () => true),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    // Should generate 3 times (initial + 2 continues)
+    assert.equal(deps.generateImage.mock.callCount(), 3);
+    // Model selection only happens once (at the start)
+    assert.equal(deps.promptModel.mock.callCount(), 1);
+    // promptText called each iteration
+    assert.equal(deps.promptText.mock.callCount(), 3);
+  });
+
+  it('exits loop when promptContinue returns false', async () => {
+    const { deps } = makeDeps({
+      promptContinue: mock.fn(async () => false),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    assert.equal(deps.generateImage.mock.callCount(), 1);
+    assert.equal(deps.promptContinue.mock.callCount(), 1);
+    // promptKeepModel should not be called when not continuing
+    assert.equal(deps.promptKeepModel.mock.callCount(), 0);
+  });
+
+  it('re-selects model when keepModel returns false', async () => {
+    let continueCallCount = 0;
+    const { deps } = makeDeps({
+      promptContinue: mock.fn(async () => {
+        continueCallCount++;
+        return continueCallCount <= 1; // continue once, then stop
+      }),
+      promptKeepModel: mock.fn(async () => false),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    // Should generate 2 times
+    assert.equal(deps.generateImage.mock.callCount(), 2);
+    // Category + model selection happens twice (initial + re-selection)
+    assert.equal(deps.listCategories.mock.callCount(), 2);
+    assert.equal(deps.promptCategory.mock.callCount(), 2);
+    assert.equal(deps.listModels.mock.callCount(), 2);
+    assert.equal(deps.promptModel.mock.callCount(), 2);
+  });
+
+  it('skips model selection when keepModel returns true', async () => {
+    let continueCallCount = 0;
+    const { deps } = makeDeps({
+      promptContinue: mock.fn(async () => {
+        continueCallCount++;
+        return continueCallCount <= 1;
+      }),
+      promptKeepModel: mock.fn(async () => true),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    assert.equal(deps.generateImage.mock.callCount(), 2);
+    // Category + model selection only once
+    assert.equal(deps.listCategories.mock.callCount(), 1);
+    assert.equal(deps.promptCategory.mock.callCount(), 1);
+    assert.equal(deps.promptModel.mock.callCount(), 1);
   });
 });

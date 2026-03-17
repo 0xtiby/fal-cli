@@ -1,4 +1,4 @@
-import { select, input } from '@inquirer/prompts';
+import { select, input, confirm } from '@inquirer/prompts';
 
 /**
  * Prompt the user to select a model category.
@@ -67,5 +67,31 @@ export async function promptSize(defaultSize, options = {}) {
     message: 'Select image size:',
     choices: sizes.map((s) => ({ name: s, value: s })),
     default: defaultSize,
+  });
+}
+
+/**
+ * Ask the user if they want to generate another image.
+ * @param {{ _confirm?: Function }} [options] - Internal options for testing
+ * @returns {Promise<boolean>}
+ */
+export async function promptContinue(options = {}) {
+  const confirmFn = options._confirm ?? confirm;
+  return confirmFn({
+    message: 'Generate another image?',
+    default: true,
+  });
+}
+
+/**
+ * Ask the user if they want to keep the same model.
+ * @param {{ _confirm?: Function }} [options] - Internal options for testing
+ * @returns {Promise<boolean>}
+ */
+export async function promptKeepModel(options = {}) {
+  const confirmFn = options._confirm ?? confirm;
+  return confirmFn({
+    message: 'Keep the same model?',
+    default: true,
   });
 }
