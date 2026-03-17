@@ -4,10 +4,21 @@ import { runInteractiveFlow } from './interactive.js';
 
 function makeDeps(overrides = {}) {
   const stdout = { write: mock.fn() };
+  const stderr = { write: mock.fn() };
+  const exit = mock.fn();
+  const sigintHandlers = [];
+  const processOn = mock.fn((event, handler) => { if (event === 'SIGINT') sigintHandlers.push(handler); });
+  const processRemoveListener = mock.fn((event, handler) => {
+    if (event === 'SIGINT') {
+      const idx = sigintHandlers.indexOf(handler);
+      if (idx !== -1) sigintHandlers.splice(idx, 1);
+    }
+  });
   const spinnerInstance = {
     text: '',
     start() { return this; },
     succeed: mock.fn(),
+    stop: mock.fn(),
   };
   const oraFn = mock.fn(() => spinnerInstance);
 
@@ -40,11 +51,18 @@ function makeDeps(overrides = {}) {
       promptKeepModel: mock.fn(async () => true),
       ora: oraFn,
       stdout,
+      stderr,
+      exit,
+      processOn,
+      processRemoveListener,
       ...overrides,
     },
     spinnerInstance,
     oraFn,
     stdout,
+    stderr,
+    exit,
+    sigintHandlers,
   };
 }
 
@@ -225,5 +243,86 @@ describe('interactive command', () => {
     assert.equal(deps.listCategories.mock.callCount(), 1);
     assert.equal(deps.promptCategory.mock.callCount(), 1);
     assert.equal(deps.promptModel.mock.callCount(), 1);
+  });
+
+  it('catches ExitPromptError during prompt and exits with code 0', async () => {
+    const exitError = new Error('User force closed the prompt with SIGINT');
+    exitError.name = 'ExitPromptError';
+
+    const { deps, exit, stderr } = makeDeps({
+      promptCategory: mock.fn(async () => { throw exitError; }),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    assert.equal(exit.mock.callCount(), 1);
+    assert.equal(exit.mock.calls[0].arguments[0], 0);
+    assert.equal(stderr.write.mock.callCount(), 1);
+    assert.ok(stderr.write.mock.calls[0].arguments[0].includes('\n'));
+  });
+
+  it('re-throws non-ExitPromptError errors', async () => {
+    const genericError = new Error('something broke');
+
+    const { deps } = makeDeps({
+      promptText: mock.fn(async () => { throw genericError; }),
+    });
+
+    await assert.rejects(
+      () => runInteractiveFlow({ _deps: deps }),
+      (err) => err === genericError,
+    );
+  });
+
+  it('registers SIGINT handler before generateImage and removes after', async () => {
+    const { deps, sigintHandlers } = makeDeps();
+
+    let handlersDuringGenerate;
+    deps.generateImage = mock.fn(async () => {
+      handlersDuringGenerate = [...sigintHandlers];
+      return { url: 'https://cdn.fal.ai/test.png', width: 1024, height: 768, seed: 42 };
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    // Handler was registered during generation
+    assert.equal(handlersDuringGenerate.length, 1);
+    // Handler was removed after generation
+    assert.equal(sigintHandlers.length, 0);
+    assert.equal(deps.processOn.mock.callCount(), 1);
+    assert.equal(deps.processRemoveListener.mock.callCount(), 1);
+  });
+
+  it('SIGINT during generation stops spinner and exits with code 0', async () => {
+    const { deps, spinnerInstance, exit, stderr, sigintHandlers } = makeDeps();
+
+    deps.generateImage = mock.fn(async () => {
+      // Simulate SIGINT during generation
+      assert.equal(sigintHandlers.length, 1);
+      sigintHandlers[0]();
+      return { url: 'https://cdn.fal.ai/test.png', width: 1024, height: 768, seed: 42 };
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    assert.equal(spinnerInstance.stop.mock.callCount(), 1);
+    assert.equal(exit.mock.callCount(), 1);
+    assert.equal(exit.mock.calls[0].arguments[0], 0);
+    assert.equal(stderr.write.mock.callCount(), 1);
+  });
+
+  it('removes SIGINT handler even if generateImage throws', async () => {
+    const { deps, sigintHandlers } = makeDeps({
+      generateImage: mock.fn(async () => { throw new Error('API failed'); }),
+    });
+
+    await assert.rejects(
+      () => runInteractiveFlow({ _deps: deps }),
+      { message: 'API failed' },
+    );
+
+    // SIGINT handler should still be cleaned up
+    assert.equal(sigintHandlers.length, 0);
+    assert.equal(deps.processRemoveListener.mock.callCount(), 1);
   });
 });
