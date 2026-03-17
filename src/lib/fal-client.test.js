@@ -130,7 +130,7 @@ describe('listModels', () => {
     assert.deepEqual(first, second);
   });
 
-  it('throws API_ERROR on 401', async () => {
+  it('throws CONFIG_ERROR on 401', async () => {
     const { fetch: fetchFn } = mockFetch([
       { status: 401, body: { error: 'Unauthorized' } },
     ]);
@@ -138,9 +138,11 @@ describe('listModels', () => {
     await assert.rejects(
       () => listModels(undefined, { ...TEST_OPTIONS, _fetch: fetchFn }),
       (err) => {
-        assert.equal(err.code, 'API_ERROR');
+        assert.equal(err.code, 'CONFIG_ERROR');
         assert.equal(err.status, 401);
         assert.match(err.message, /Invalid API key/);
+        assert.ok(err.details.url, 'error details should include URL');
+        assert.equal(err.details.status, 401);
         return true;
       },
     );
@@ -157,6 +159,9 @@ describe('listModels', () => {
         assert.equal(err.code, 'API_ERROR');
         assert.equal(err.status, 429);
         assert.match(err.message, /Rate limited/);
+        assert.match(err.message, /try again/i);
+        assert.ok(err.details.url, 'error details should include URL');
+        assert.equal(err.details.status, 429);
         return true;
       },
     );
@@ -172,6 +177,25 @@ describe('listModels', () => {
       (err) => {
         assert.equal(err.code, 'NETWORK_ERROR');
         assert.match(err.message, /Failed to connect/);
+        assert.ok(err.details.url, 'error details should include URL');
+        return true;
+      },
+    );
+  });
+
+  it('throws API_ERROR on 500 server error', async () => {
+    const { fetch: fetchFn } = mockFetch([
+      { status: 500, body: { error: 'Internal Server Error' } },
+    ]);
+
+    await assert.rejects(
+      () => listModels(undefined, { ...TEST_OPTIONS, _fetch: fetchFn }),
+      (err) => {
+        assert.equal(err.code, 'API_ERROR');
+        assert.equal(err.status, 500);
+        assert.match(err.message, /500/);
+        assert.ok(err.details.url, 'error details should include URL');
+        assert.equal(err.details.status, 500);
         return true;
       },
     );

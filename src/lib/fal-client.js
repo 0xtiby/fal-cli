@@ -69,7 +69,7 @@ export async function listModels(filters, options = {}) {
       const body = await res.text().catch(() => '');
       if (res.status === 401) {
         throw {
-          code: 'API_ERROR',
+          code: 'CONFIG_ERROR',
           message: 'Invalid API key. Check your FAL_KEY configuration.',
           status: res.status,
           details: { url: url.toString(), status: res.status, response: body },
