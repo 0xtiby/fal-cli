@@ -32,6 +32,7 @@ The CLI reads configuration from `~/.fal-cli/.env`. This file holds the fal.ai A
 | `FAL_DEFAULT_MODEL` | No | `fal-ai/flux/schnell` | Default model endpoint ID |
 | `FAL_OUTPUT_DIR` | No | `./generated` | Directory where images are saved |
 | `FAL_IMAGE_SIZE` | No | `landscape_4_3` | Default image size preset |
+| `FAL_VERBOSE` | No | — | Set to `1` to enable verbose/debug output (same as `--verbose`) |
 
 ## Business Rules
 
@@ -48,6 +49,7 @@ The CLI reads configuration from `~/.fal-cli/.env`. This file holds the fal.ai A
  * @property {string} defaultModel - Default model endpoint ID
  * @property {string} outputDir - Default output directory for saved images
  * @property {string} imageSize - Default image size preset
+ * @property {boolean} verbose - Enable verbose/debug output
  */
 
 /** @type {string[]} Valid image size presets */
@@ -106,6 +108,10 @@ Dependencies: `dotenv` for parsing `.env` files, `@fal-ai/client` for API initia
 - **Missing `~/.fal-cli/.env`:** Fall back to shell environment variables only. If `FAL_KEY` still missing, exit with setup instructions.
 - **Invalid API key:** The CLI does not validate the key at startup. API calls will fail with a 401 — the generate/models commands handle this error.
 - **Invalid image size preset:** Commands validate against `IMAGE_SIZE_PRESETS` and show allowed values on mismatch.
+
+## Exit Code Conventions
+
+All CLI commands follow a consistent set of exit codes. See [spec 05](./05-cli-entrypoint.md) for the full table. Config-related errors (missing `FAL_KEY`, invalid preset) use exit code **2**.
 
 ## Acceptance Criteria
 

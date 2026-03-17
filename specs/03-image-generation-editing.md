@@ -45,11 +45,14 @@ The `generate` command sends a prompt (and optionally a reference image) to a fa
 - `--model` defaults to `FAL_DEFAULT_MODEL` from config (fallback: `fal-ai/flux/schnell`)
 - `--size` defaults to `FAL_IMAGE_SIZE` from config (fallback: `landscape_4_3`)
 - `--output` defaults to `FAL_OUTPUT_DIR` from config (fallback: `./generated`)
+- `--seed` optionally accepts a numeric seed for reproducible generation. If omitted, the API picks a random seed. The seed used is always included in the output.
 - When `--image` is a local file path, upload it to fal.ai's storage before sending the request (use `fal.storage.upload()`)
 - When `--image` is a URL, pass it directly to the model input
 - The CLI uses `fal.subscribe()` to submit the request and poll for results with status updates
 - Generated images are downloaded from the CDN URL and saved with a timestamp-based filename
 - Filename format: `YYYY-MM-DD_HHmmss_<model-slug>.<ext>` (e.g. `2026-03-17_143022_flux-schnell.png`)
+- File extension is determined from the CDN response `content-type` header: `image/png` → `.png`, `image/jpeg` → `.jpg`, `image/webp` → `.webp`. Falls back to `.png` if content-type is missing or unrecognized.
+- If the API response contains multiple images in the `images[]` array, only the **first image** is saved. This is a deliberate simplification — batch generation is out of scope.
 - The output directory is created automatically if it doesn't exist
 
 ## UI/UX
@@ -106,6 +109,7 @@ The `generate` command sends a prompt (and optionally a reference image) to a fa
  * @property {string} [image] - Reference image (local path or URL) for image-to-image
  * @property {string} size - Image size preset name
  * @property {string} outputDir - Directory to save the image
+ * @property {number} [seed] - Seed for reproducible generation
  */
 
 /** @typedef {Object} GenerateResult
@@ -130,6 +134,7 @@ The `generate` command sends a prompt (and optionally a reference image) to a fa
 //   image:   z.string().optional().describe('Reference image path or URL'),
 //   size:    z.enum(IMAGE_SIZE_PRESETS).optional().describe('Image size preset'),
 //   output:  z.string().optional().describe('Output directory'),
+//   seed:    z.number().optional().describe('Seed for reproducible generation'),
 // }
 // returns: GenerateResult
 ```
@@ -172,6 +177,15 @@ export async function saveImage(imageUrl, outputDir, model) {}
  * @returns {string}
  */
 export function generateFilename(model, ext = 'png') {}
+
+/**
+ * Determine file extension from a content-type header value.
+ * Falls back to "png" for unknown or missing types.
+ *
+ * @param {string|null} contentType - Content-Type header value
+ * @returns {string} File extension without dot (e.g. "png", "jpg", "webp")
+ */
+export function extensionFromContentType(contentType) {}
 ```
 
 ## Architecture
@@ -195,8 +209,8 @@ fal-cli generate --prompt "sunset" --image ./photo.jpg
 
 ### fal.ai API mapping
 
-- **Text-to-image:** `fal.subscribe(model, { input: { prompt, image_size } })`
-- **Image-to-image:** `fal.subscribe(model, { input: { prompt, image_url, image_size } })`
+- **Text-to-image:** `fal.subscribe(model, { input: { prompt, image_size, seed } })`
+- **Image-to-image:** `fal.subscribe(model, { input: { prompt, image_url, image_size, seed } })`
 - **Response shape:** `{ images: [{ url, width, height }], seed }`
 
 ## Edge Cases
@@ -208,7 +222,8 @@ fal-cli generate --prompt "sunset" --image ./photo.jpg
 - **Output directory not writable:** Exit with permission error
 - **Disk full:** Catch write error and display remaining space info
 - **Invalid size preset:** Show allowed values from `IMAGE_SIZE_PRESETS`
-- **API timeout:** `fal.subscribe` handles retries — but if it ultimately fails, show timeout error with suggestion to try again
+- **API timeout:** `fal.subscribe` handles retries — but if it ultimately fails, show timeout error with suggestion to try again. The CLI does not impose its own timeout — it relies on fal.subscribe's built-in timeout behavior.
+- **Multiple images in response:** Only the first image from `images[]` is used. Log a verbose message noting additional images were ignored.
 
 ## Acceptance Criteria
 

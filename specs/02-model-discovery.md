@@ -85,6 +85,46 @@ The `models` command fetches available models from the fal.ai platform API (`GET
 }
 ```
 
+## Platform API Response Shape
+
+The `GET https://api.fal.ai/v1/models` endpoint returns a paginated list. The raw response shape (relevant fields):
+
+```json
+{
+  "data": [
+    {
+      "id": "fal-ai/flux/schnell",
+      "name": "FLUX.1 Schnell",
+      "category": "text-to-image",
+      "status": "active",
+      "description": "Fast image generation model...",
+      "created_at": "2025-01-15T..."
+    }
+  ],
+  "has_more": true,
+  "next_cursor": "abc123"
+}
+```
+
+Query parameters:
+- `category` (string, optional) — filter by category
+- `status` (string, optional) — filter by status (default: `active`)
+- `cursor` (string, optional) — pagination cursor from previous response
+- `limit` (number, optional) — page size
+
+The CLI extracts `id` → `endpointId`, `name`, and `category` from each item. Other fields (`description`, `created_at`) are discarded for now but available for a future `models info` command.
+
+## Caching
+
+Model lists change infrequently. To avoid redundant API calls — especially in interactive mode (spec 04) where models may be fetched multiple times per session:
+
+- Cache the full model list **in-memory** for the duration of the process
+- No disk-based cache (keeps implementation simple)
+- `listModels()` returns cached results if called again with the same filters
+- `listCategories()` derives from the cached model list
+
+This means interactive mode's "pick another model" loop won't re-fetch unless the process restarts.
+
 ## Data Model
 
 ```js

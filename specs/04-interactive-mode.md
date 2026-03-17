@@ -85,7 +85,7 @@ $ fal-cli interactive
 - The prompt input must not be empty — re-ask if it is
 - Size defaults to the config value but can be changed each iteration
 - All generation uses the same `generateImage()` and `saveImage()` from spec 03
-- Ctrl+C at any point exits cleanly without error
+- Ctrl+C at any point exits cleanly without error. This is handled by catching `@inquirer/prompts`' `ExitPromptError` (thrown when the user presses Ctrl+C during a prompt) and by registering a `process.on('SIGINT')` handler for Ctrl+C during generation. Both paths print a newline and call `process.exit(0)` — no stack trace.
 
 ## Data Model
 
@@ -189,8 +189,8 @@ Dependencies: `@inquirer/prompts` for interactive prompts, reuses `listModels`, 
 - **API failure during model fetch:** Display error and ask to retry or exit
 - **Empty prompt entered:** Re-prompt with "Prompt cannot be empty"
 - **Invalid image path:** Display "File not found" and re-prompt
-- **Ctrl+C during prompt:** Exit cleanly with no error stacktrace
-- **Ctrl+C during generation:** Cancel the request if possible, exit cleanly
+- **Ctrl+C during prompt:** `@inquirer/prompts` throws `ExitPromptError` — catch it in the main loop and exit with code 0
+- **Ctrl+C during generation:** The `SIGINT` handler calls `process.exit(0)`. The in-flight `fal.subscribe` request is abandoned (no explicit cancellation API). The spinner is cleared before exit.
 - **API key expired mid-session:** Display auth error and exit with setup instructions
 
 ## Acceptance Criteria
