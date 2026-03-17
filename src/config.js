@@ -1,3 +1,4 @@
+import { fal } from '@fal-ai/client';
 import { config as dotenvConfig } from 'dotenv';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -49,4 +50,13 @@ export function loadConfig(options = {}) {
     imageSize: process.env.FAL_IMAGE_SIZE || 'landscape_4_3',
     verbose: !!(verbose && verbose !== '0' && verbose !== 'false'),
   };
+}
+
+/**
+ * Initialize the @fal-ai/client with the API key from config.
+ * Call once at startup after loadConfig().
+ * @param {{ falKey: string }} config
+ */
+export function initFalClient(config) {
+  fal.config({ credentials: config.falKey });
 }

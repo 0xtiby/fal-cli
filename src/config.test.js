@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadConfig, IMAGE_SIZE_PRESETS } from './config.js';
+import { loadConfig, initFalClient, IMAGE_SIZE_PRESETS } from './config.js';
 
 const testDir = join(tmpdir(), `fal-cli-test-${process.pid}`);
 const envPath = join(testDir, '.env');
@@ -125,6 +125,18 @@ describe('loadConfig', () => {
 
     const config = loadConfig({ envPath });
     assert.equal(config.verbose, true);
+  });
+});
+
+describe('initFalClient', () => {
+  it('does not throw with valid config', () => {
+    assert.doesNotThrow(() => {
+      initFalClient({ falKey: 'test-key-123' });
+    });
+  });
+
+  it('exports initFalClient as a function', () => {
+    assert.equal(typeof initFalClient, 'function');
   });
 });
 
