@@ -95,3 +95,16 @@ export async function promptKeepModel(options = {}) {
     default: true,
   });
 }
+
+/**
+ * Ask the user if they want to retry after an error.
+ * @param {{ _confirm?: Function }} [options] - Internal options for testing
+ * @returns {Promise<boolean>}
+ */
+export async function promptRetry(options = {}) {
+  const confirmFn = options._confirm ?? confirm;
+  return confirmFn({
+    message: 'Retry?',
+    default: true,
+  });
+}

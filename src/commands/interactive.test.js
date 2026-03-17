@@ -49,6 +49,7 @@ function makeDeps(overrides = {}) {
       promptSize: mock.fn(async () => 'landscape_4_3'),
       promptContinue: mock.fn(async () => false),
       promptKeepModel: mock.fn(async () => true),
+      promptRetry: mock.fn(async () => false),
       ora: oraFn,
       stdout,
       stderr,
@@ -314,15 +315,139 @@ describe('interactive command', () => {
   it('removes SIGINT handler even if generateImage throws', async () => {
     const { deps, sigintHandlers } = makeDeps({
       generateImage: mock.fn(async () => { throw new Error('API failed'); }),
+      promptRetry: mock.fn(async () => false),
     });
 
-    await assert.rejects(
-      () => runInteractiveFlow({ _deps: deps }),
-      { message: 'API failed' },
-    );
+    await runInteractiveFlow({ _deps: deps });
 
     // SIGINT handler should still be cleaned up
     assert.equal(sigintHandlers.length, 0);
-    assert.equal(deps.processRemoveListener.mock.callCount(), 1);
+  });
+
+  it('empty models list goes back to category selection', async () => {
+    let listModelsCallCount = 0;
+    const { deps, stderr } = makeDeps({
+      listModels: mock.fn(async () => {
+        listModelsCallCount++;
+        if (listModelsCallCount === 1) return []; // first category is empty
+        return [{ endpointId: 'fal-ai/flux/schnell', name: 'FLUX Schnell' }];
+      }),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    // "No models found" written to stderr
+    const stderrOutput = stderr.write.mock.calls.map(c => c.arguments[0]).join('');
+    assert.ok(stderrOutput.includes('No models found in this category'));
+    // Category prompt called twice (initial + re-prompt after empty)
+    assert.equal(deps.promptCategory.mock.callCount(), 2);
+    // listCategories called twice (initial + re-fetch after empty)
+    assert.equal(deps.listCategories.mock.callCount(), 2);
+  });
+
+  it('API failure during category fetch shows retry prompt', async () => {
+    let fetchCount = 0;
+    const { deps, stderr, exit } = makeDeps({
+      listCategories: mock.fn(async () => {
+        fetchCount++;
+        if (fetchCount === 1) throw { code: 'NETWORK_ERROR', message: 'connection refused' };
+        return ['text-to-image'];
+      }),
+      promptRetry: mock.fn(async () => true),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    const stderrOutput = stderr.write.mock.calls.map(c => c.arguments[0]).join('');
+    assert.ok(stderrOutput.includes('Failed to fetch categories'));
+    assert.equal(deps.promptRetry.mock.callCount(), 1);
+    assert.equal(exit.mock.callCount(), 0); // did not exit, retried successfully
+  });
+
+  it('API failure during model fetch with no retry exits', async () => {
+    const { deps, stderr, exit } = makeDeps({
+      listModels: mock.fn(async () => {
+        throw { code: 'API_ERROR', message: 'server error' };
+      }),
+      promptRetry: mock.fn(async () => false),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    const stderrOutput = stderr.write.mock.calls.map(c => c.arguments[0]).join('');
+    assert.ok(stderrOutput.includes('Failed to fetch models'));
+    assert.equal(exit.mock.callCount(), 1);
+    assert.equal(exit.mock.calls[0].arguments[0], 1);
+  });
+
+  it('auth error during category fetch exits with auth message', async () => {
+    const { deps, stderr, exit } = makeDeps({
+      listCategories: mock.fn(async () => {
+        throw { code: 'CONFIG_ERROR', status: 401, message: 'Invalid API key' };
+      }),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    const stderrOutput = stderr.write.mock.calls.map(c => c.arguments[0]).join('');
+    assert.ok(stderrOutput.includes('Authentication failed'));
+    assert.ok(stderrOutput.includes('fal config'));
+    assert.equal(exit.mock.callCount(), 1);
+    assert.equal(exit.mock.calls[0].arguments[0], 1);
+    // promptRetry should NOT be called for auth errors
+    assert.equal(deps.promptRetry.mock.callCount(), 0);
+  });
+
+  it('auth error during generation exits with auth message', async () => {
+    const { deps, stderr, exit } = makeDeps({
+      generateImage: mock.fn(async () => {
+        throw { code: 'CONFIG_ERROR', status: 401, message: 'Invalid API key' };
+      }),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    const stderrOutput = stderr.write.mock.calls.map(c => c.arguments[0]).join('');
+    assert.ok(stderrOutput.includes('Authentication failed'));
+    assert.equal(exit.mock.callCount(), 1);
+    assert.equal(exit.mock.calls[0].arguments[0], 1);
+  });
+
+  it('generation failure with retry retries the generation loop', async () => {
+    let genCount = 0;
+    const { deps, exit } = makeDeps({
+      generateImage: mock.fn(async () => {
+        genCount++;
+        if (genCount === 1) throw { code: 'API_ERROR', message: 'timeout' };
+        return { url: 'https://cdn.fal.ai/test.png', width: 1024, height: 768, seed: 42 };
+      }),
+      promptRetry: mock.fn(async () => true),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    assert.equal(genCount, 2);
+    // promptText called twice (initial attempt + retry loop iteration)
+    assert.equal(deps.promptText.mock.callCount(), 2);
+    assert.equal(exit.mock.callCount(), 0);
+  });
+
+  it('all error messages go to stderr', async () => {
+    const { deps, stdout, stderr } = makeDeps({
+      listCategories: mock.fn(async () => {
+        throw { code: 'NETWORK_ERROR', message: 'network down' };
+      }),
+      promptRetry: mock.fn(async () => false),
+    });
+
+    await runInteractiveFlow({ _deps: deps });
+
+    // stdout should not have error messages
+    const stdoutOutput = stdout.write.mock.calls.map(c => c.arguments[0]).join('');
+    assert.ok(!stdoutOutput.includes('Failed'));
+    assert.ok(!stdoutOutput.includes('Error'));
+    // stderr should have the error
+    const stderrOutput = stderr.write.mock.calls.map(c => c.arguments[0]).join('');
+    assert.ok(stderrOutput.includes('Failed to fetch categories'));
   });
 });
