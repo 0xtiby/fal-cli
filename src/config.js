@@ -60,3 +60,20 @@ export function loadConfig(options = {}) {
 export function initFalClient(config) {
   fal.config({ credentials: config.falKey });
 }
+
+/**
+ * Merge base config with command-level flag overrides.
+ * Flag values take precedence; undefined/null values in overrides are ignored.
+ * @param {{ falKey: string, defaultModel: string, outputDir: string, imageSize: string, verbose: boolean }} config
+ * @param {Partial<{ defaultModel: string, outputDir: string, imageSize: string, verbose: boolean }>} [overrides]
+ * @returns {{ falKey: string, defaultModel: string, outputDir: string, imageSize: string, verbose: boolean }}
+ */
+export function resolveConfig(config, overrides = {}) {
+  const result = { ...config };
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value !== undefined && value !== null) {
+      result[key] = value;
+    }
+  }
+  return result;
+}

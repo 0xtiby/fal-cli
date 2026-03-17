@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { writeFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { loadConfig, initFalClient, IMAGE_SIZE_PRESETS } from './config.js';
+import { loadConfig, initFalClient, IMAGE_SIZE_PRESETS, resolveConfig } from './config.js';
 
 const testDir = join(tmpdir(), `fal-cli-test-${process.pid}`);
 const envPath = join(testDir, '.env');
@@ -137,6 +137,67 @@ describe('initFalClient', () => {
 
   it('exports initFalClient as a function', () => {
     assert.equal(typeof initFalClient, 'function');
+  });
+});
+
+describe('resolveConfig', () => {
+  const baseConfig = {
+    falKey: 'test-key',
+    defaultModel: 'fal-ai/flux/schnell',
+    outputDir: './generated',
+    imageSize: 'landscape_4_3',
+    verbose: false,
+  };
+
+  it('uses all override values when fully specified', () => {
+    const result = resolveConfig(baseConfig, {
+      defaultModel: 'fal-ai/flux/dev',
+      outputDir: '/tmp/out',
+      imageSize: 'square_hd',
+      verbose: true,
+    });
+    assert.equal(result.defaultModel, 'fal-ai/flux/dev');
+    assert.equal(result.outputDir, '/tmp/out');
+    assert.equal(result.imageSize, 'square_hd');
+    assert.equal(result.verbose, true);
+    assert.equal(result.falKey, 'test-key');
+  });
+
+  it('keeps base values for non-overridden fields', () => {
+    const result = resolveConfig(baseConfig, { defaultModel: 'fal-ai/flux/dev' });
+    assert.equal(result.defaultModel, 'fal-ai/flux/dev');
+    assert.equal(result.outputDir, './generated');
+    assert.equal(result.imageSize, 'landscape_4_3');
+    assert.equal(result.verbose, false);
+  });
+
+  it('ignores undefined override values', () => {
+    const result = resolveConfig(baseConfig, {
+      defaultModel: undefined,
+      outputDir: undefined,
+    });
+    assert.equal(result.defaultModel, 'fal-ai/flux/schnell');
+    assert.equal(result.outputDir, './generated');
+  });
+
+  it('ignores null override values', () => {
+    const result = resolveConfig(baseConfig, {
+      defaultModel: null,
+      imageSize: null,
+    });
+    assert.equal(result.defaultModel, 'fal-ai/flux/schnell');
+    assert.equal(result.imageSize, 'landscape_4_3');
+  });
+
+  it('returns base config when no overrides given', () => {
+    const result = resolveConfig(baseConfig);
+    assert.deepEqual(result, baseConfig);
+  });
+
+  it('does not mutate original config', () => {
+    const original = { ...baseConfig };
+    resolveConfig(baseConfig, { defaultModel: 'changed' });
+    assert.deepEqual(baseConfig, original);
   });
 });
 
