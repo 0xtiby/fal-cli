@@ -1,0 +1,17 @@
+{
+  "name": "fal-cli",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "CLI tool for generating and editing images via the fal.ai API",
+  "main": "src/index.js",
+  "scripts": {
+    "build": "echo 'No build step required'",
+    "lint": "echo 'No lint configured yet'",
+    "test": "node --test src/**/*.test.js"
+  },
+  "dependencies": {
+    "@fal-ai/client": "^1.9.4",
+    "dotenv": "^17.3.1",
+    "incur": "^0.3.4"
+  }
+}
