@@ -97,6 +97,61 @@ describe('listModels integration', () => {
   });
 });
 
+describe('categories subcommand', () => {
+  beforeEach(() => {
+    clearCache();
+    process.env.FAL_KEY = 'test-key';
+    process.exit = mock.fn();
+  });
+
+  afterEach(() => {
+    process.exit = originalExit;
+    delete process.env.FAL_KEY;
+  });
+
+  it('categories subcommand is registered on modelsCommand', async () => {
+    const { modelsCommand } = await import('./models.js');
+    assert.ok(modelsCommand);
+    assert.equal(modelsCommand.name, 'models');
+  });
+
+  it('listCategories returns sorted unique categories', async () => {
+    const { listCategories } = await import('../lib/fal-client.js');
+    const fetchFn = mockFetch(sampleModels);
+    const categories = await listCategories({ falKey: 'test-key', _fetch: fetchFn });
+
+    assert.deepEqual(categories, ['image-to-image', 'text-to-image']);
+    // Verify it matches CategoriesResponse shape
+    const response = { categories };
+    assert.ok(Array.isArray(response.categories));
+    assert.equal(typeof response.categories[0], 'string');
+  });
+
+  it('returns empty array when no models exist', async () => {
+    const { listCategories } = await import('../lib/fal-client.js');
+    const fetchFn = mockFetch([]);
+    const categories = await listCategories({ falKey: 'test-key', _fetch: fetchFn });
+
+    assert.deepEqual(categories, []);
+    const response = { categories };
+    assert.ok(Array.isArray(response.categories));
+    assert.equal(response.categories.length, 0);
+  });
+
+  it('deduplicates categories from multiple models', async () => {
+    const { listCategories } = await import('../lib/fal-client.js');
+    const modelsWithDupes = [
+      { endpointId: 'fal-ai/a', name: 'A', category: 'text-to-image' },
+      { endpointId: 'fal-ai/b', name: 'B', category: 'text-to-image' },
+      { endpointId: 'fal-ai/c', name: 'C', category: 'video' },
+    ];
+    const fetchFn = mockFetch(modelsWithDupes);
+    const categories = await listCategories({ falKey: 'test-key', _fetch: fetchFn });
+
+    assert.deepEqual(categories, ['text-to-image', 'video']);
+  });
+});
+
 describe('models command output', () => {
   beforeEach(() => {
     clearCache();
