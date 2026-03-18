@@ -210,6 +210,117 @@ export async function generateImage(input, onStatus, options = {}) {
 }
 
 /**
+ * Run a generation request using fal.ai's queue-based subscribe API.
+ * Unlike generateImage(), returns the full response data and requestId.
+ * @param {{ model: string, prompt: string, image_url?: string, image_urls?: string[], image_size?: string, seed?: number }} input
+ * @param {(status: { status: string, position?: number }) => void} [onStatus]
+ * @param {{ _fal?: typeof fal }} [options]
+ * @returns {Promise<{ data: Object, requestId: string }>}
+ */
+export async function runGeneration(input, onStatus, options = {}) {
+  const falClient = options._fal ?? fal;
+
+  const apiInput = { prompt: input.prompt };
+  if (input.image_urls?.length) {
+    apiInput.image_url = input.image_urls[0];
+    apiInput.image_urls = input.image_urls;
+  } else if (input.image_url) {
+    apiInput.image_url = input.image_url;
+    apiInput.image_urls = [input.image_url];
+  }
+  if (input.image_size) {
+    apiInput.image_size = input.image_size;
+  }
+  if (input.seed !== undefined) {
+    apiInput.seed = input.seed;
+  }
+
+  const result = await falClient.subscribe(input.model, {
+    input: apiInput,
+    onQueueUpdate: onStatus
+      ? (update) => {
+          const status = { status: update.status };
+          if (update.queue_position !== undefined) {
+            status.position = update.queue_position;
+          }
+          onStatus(status);
+        }
+      : undefined,
+  });
+
+  return { data: result.data, requestId: result.requestId };
+}
+
+/**
+ * Extract output file URLs from a fal.ai API response.
+ * Handles varying response shapes: images[], video, audio, or generic URL fields.
+ *
+ * Priority order:
+ * 1. data.images[] — array of { url, width, height } (image models)
+ * 2. data.video — { url, content_type?, file_name?, file_size? } (video models)
+ * 3. data.audio — { url, content_type?, file_name?, file_size? } (audio models)
+ * 4. Walk the response object and collect any { url: string } values
+ *    that match fal.ai CDN patterns (https://fal.media/ or https://v3.fal.media/)
+ *
+ * @param {Object} data - Raw response data from fal.subscribe()
+ * @returns {{ url: string, width?: number, height?: number, contentType?: string }[]}
+ */
+export function extractOutputFiles(data) {
+  const files = [];
+
+  if (Array.isArray(data.images) && data.images.length > 0) {
+    for (const img of data.images) {
+      files.push({
+        url: img.url,
+        ...(img.width !== undefined && { width: img.width }),
+        ...(img.height !== undefined && { height: img.height }),
+      });
+    }
+  }
+
+  if (data.video?.url) {
+    files.push({
+      url: data.video.url,
+      ...(data.video.content_type && { contentType: data.video.content_type }),
+    });
+  }
+
+  if (data.audio?.url) {
+    files.push({
+      url: data.audio.url,
+      ...(data.audio.content_type && { contentType: data.audio.content_type }),
+    });
+  }
+
+  if (files.length > 0) return files;
+
+  // Fallback: walk the response and collect fal.ai CDN URLs
+  const cdnPattern = /^https:\/\/(fal\.media|v3\.fal\.media)\//;
+  walkObject(data, (value) => {
+    if (typeof value?.url === 'string' && cdnPattern.test(value.url)) {
+      files.push({ url: value.url });
+    }
+  });
+
+  return files;
+}
+
+/**
+ * Recursively walk an object, calling fn on each non-null object value.
+ * @param {any} obj
+ * @param {(value: any) => void} fn
+ */
+function walkObject(obj, fn) {
+  if (obj === null || typeof obj !== 'object') return;
+  fn(obj);
+  for (const value of Object.values(obj)) {
+    if (typeof value === 'object' && value !== null) {
+      walkObject(value, fn);
+    }
+  }
+}
+
+/**
  * Clear the in-memory model cache. Useful for testing.
  */
 export function clearCache() {
