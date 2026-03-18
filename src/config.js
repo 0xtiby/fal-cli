@@ -25,7 +25,7 @@ export function loadConfig(options = {}) {
 
   // dotenv does NOT override existing env vars by default,
   // so shell env always takes precedence
-  dotenvConfig({ path: envPath });
+  dotenvConfig({ path: envPath, debug: false, quiet: true });
 
   const falKey = process.env.FAL_KEY;
   if (!falKey) {

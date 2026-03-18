@@ -1,4 +1,6 @@
 import { fal } from '@fal-ai/client';
+import { readFile } from 'node:fs/promises';
+import { resolve, extname } from 'node:path';
 import { loadConfig } from '../config.js';
 
 /** @typedef {Object} Model
@@ -93,11 +95,11 @@ export async function listModels(filters, options = {}) {
     }
 
     const json = await res.json();
-    for (const item of json.data) {
+    for (const item of json.models) {
       models.push({
-        endpointId: item.id,
-        name: item.name,
-        category: item.category,
+        endpointId: item.endpoint_id,
+        name: item.metadata?.display_name ?? item.endpoint_id,
+        category: item.metadata?.category ?? 'unknown',
       });
     }
 
@@ -123,9 +125,46 @@ export async function listCategories(options = {}) {
   return categories;
 }
 
+const MIME_TYPES = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.bmp': 'image/bmp',
+};
+
+/**
+ * Resolve an image source to a URL. If it's already a URL, return as-is.
+ * If it's a local file path, upload it to fal.ai storage.
+ * @param {string} source - URL or local file path
+ * @param {{ _fal?: typeof fal }} [options]
+ * @returns {Promise<string>} A URL usable by fal.ai models
+ */
+export async function resolveImageUrl(source, options = {}) {
+  const trimmed = source.trim();
+
+  // If it looks like a URL, return as-is
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  // Strip shell escape backslashes (e.g. from pasted paths like "file\ name.png")
+  const unescaped = trimmed.replace(/\\(?=[ ()'])/g, '');
+  const filePath = resolve(unescaped);
+  const buffer = await readFile(filePath);
+  const ext = extname(filePath).toLowerCase();
+  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+  const blob = new Blob([buffer], { type: contentType });
+
+  const falClient = options._fal ?? fal;
+  const url = await falClient.storage.upload(blob);
+  return url;
+}
+
 /**
  * Generate an image using fal.ai's queue-based subscribe API.
- * @param {{ model: string, prompt: string, image_size?: string, seed?: number }} input
+ * @param {{ model: string, prompt: string, image_url?: string, image_urls?: string[], image_size?: string, seed?: number }} input
  * @param {(status: { status: string, position?: number }) => void} [onStatus]
  * @param {{ _fal?: typeof fal }} [options] - Internal options for testing
  * @returns {Promise<{ url: string, width: number, height: number, seed: number }>}
@@ -134,6 +173,13 @@ export async function generateImage(input, onStatus, options = {}) {
   const falClient = options._fal ?? fal;
 
   const apiInput = { prompt: input.prompt };
+  if (input.image_urls?.length) {
+    apiInput.image_url = input.image_urls[0];
+    apiInput.image_urls = input.image_urls;
+  } else if (input.image_url) {
+    apiInput.image_url = input.image_url;
+    apiInput.image_urls = [input.image_url];
+  }
   if (input.image_size) {
     apiInput.image_size = input.image_size;
   }

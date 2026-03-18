@@ -1,10 +1,19 @@
 import { Cli } from 'incur';
 import ora from 'ora';
 import { loadConfig } from '../config.js';
-import { listCategories, listModels, generateImage } from '../lib/fal-client.js';
+import { listCategories, listModels, generateImage, resolveImageUrl } from '../lib/fal-client.js';
 import { saveImage } from '../lib/image-saver.js';
-import { promptCategory, promptModel, promptText, promptSize, promptContinue, promptKeepModel, promptRetry } from '../lib/prompts.js';
+import { promptCategory, promptModel, promptText, promptSize, promptImageUrls, promptContinue, promptKeepModel, promptRetry } from '../lib/prompts.js';
 import { withErrorHandling } from '../lib/errors.js';
+
+/**
+ * Check if a category requires an image input.
+ * @param {string} category
+ * @returns {boolean}
+ */
+function needsImageInput(category) {
+  return category.startsWith('image-to-');
+}
 
 /**
  * Check if an error is an ExitPromptError thrown by @inquirer/prompts on Ctrl+C.
@@ -92,6 +101,7 @@ export async function runInteractiveFlow(options = {}) {
     listCategories,
     listModels,
     generateImage,
+    resolveImageUrl,
     saveImage,
     promptCategory,
     promptModel,
@@ -99,6 +109,7 @@ export async function runInteractiveFlow(options = {}) {
     promptSize,
     promptContinue,
     promptKeepModel,
+    promptImageUrls,
     promptRetry,
     ora,
     stdout: process.stdout,
@@ -132,6 +143,20 @@ export async function runInteractiveFlow(options = {}) {
     let modelId = await deps.promptModel(models);
 
     while (true) {
+      let imageUrls;
+      if (needsImageInput(category)) {
+        const imageSources = await deps.promptImageUrls();
+        const uploadSpinner = deps.ora({ text: 'Uploading image(s)...', stream: deps.stdout }).start();
+        try {
+          imageUrls = await Promise.all(imageSources.map((s) => deps.resolveImageUrl(s)));
+          uploadSpinner.succeed(`${imageUrls.length} image(s) ready`);
+        } catch (err) {
+          uploadSpinner.fail(`Failed to load image: ${err.message}`);
+          const retry = await deps.promptRetry();
+          if (!retry) { deps.exit(1); return; }
+          continue;
+        }
+      }
       const prompt = await deps.promptText();
       const imageSize = await deps.promptSize(config.imageSize);
 
@@ -156,10 +181,12 @@ export async function runInteractiveFlow(options = {}) {
           }
         };
 
-        result = await deps.generateImage(
-          { model: modelId, prompt, image_size: imageSize },
-          onStatus,
-        );
+        const generateInput = { model: modelId, prompt, image_size: imageSize };
+        if (imageUrls?.length) {
+          generateInput.image_url = imageUrls[0];
+          generateInput.image_urls = imageUrls;
+        }
+        result = await deps.generateImage(generateInput, onStatus);
       } catch (err) {
         spinner.stop();
         deps.processRemoveListener('SIGINT', sigintHandler);

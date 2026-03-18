@@ -40,9 +40,9 @@ describe('listModels', () => {
       {
         status: 200,
         body: {
-          data: [
-            { id: 'fal-ai/flux/schnell', name: 'FLUX.1 Schnell', category: 'text-to-image', status: 'active' },
-            { id: 'fal-ai/recraft/v4', name: 'Recraft V4', category: 'text-to-image', status: 'active' },
+          models: [
+            { endpoint_id: 'fal-ai/flux/schnell', metadata: { display_name: 'FLUX.1 Schnell', category: 'text-to-image' } },
+            { endpoint_id: 'fal-ai/recraft/v4', metadata: { display_name: 'Recraft V4', category: 'text-to-image' } },
           ],
           has_more: false,
           next_cursor: null,
@@ -70,7 +70,7 @@ describe('listModels', () => {
       {
         status: 200,
         body: {
-          data: [{ id: 'model-1', name: 'Model 1', category: 'text-to-image', status: 'active' }],
+          models: [{ endpoint_id: 'model-1', metadata: { display_name: 'Model 1', category: 'text-to-image' } }],
           has_more: true,
           next_cursor: 'cursor-page-2',
         },
@@ -78,7 +78,7 @@ describe('listModels', () => {
       {
         status: 200,
         body: {
-          data: [{ id: 'model-2', name: 'Model 2', category: 'image-to-image', status: 'active' }],
+          models: [{ endpoint_id: 'model-2', metadata: { display_name: 'Model 2', category: 'image-to-image' } }],
           has_more: false,
           next_cursor: null,
         },
@@ -101,7 +101,7 @@ describe('listModels', () => {
     const { fetch: fetchFn, calls } = mockFetch([
       {
         status: 200,
-        body: { data: [], has_more: false },
+        body: { models: [], has_more: false },
       },
     ]);
 
@@ -117,7 +117,7 @@ describe('listModels', () => {
       {
         status: 200,
         body: {
-          data: [{ id: 'model-1', name: 'Model 1', category: 'text-to-image', status: 'active' }],
+          models: [{ endpoint_id: 'model-1', metadata: { display_name: 'Model 1', category: 'text-to-image' } }],
           has_more: false,
         },
       },
@@ -212,11 +212,11 @@ describe('listCategories', () => {
       {
         status: 200,
         body: {
-          data: [
-            { id: 'm1', name: 'M1', category: 'text-to-image', status: 'active' },
-            { id: 'm2', name: 'M2', category: 'image-to-image', status: 'active' },
-            { id: 'm3', name: 'M3', category: 'text-to-image', status: 'active' },
-            { id: 'm4', name: 'M4', category: 'training', status: 'active' },
+          models: [
+            { endpoint_id: 'm1', metadata: { display_name: 'M1', category: 'text-to-image' } },
+            { endpoint_id: 'm2', metadata: { display_name: 'M2', category: 'image-to-image' } },
+            { endpoint_id: 'm3', metadata: { display_name: 'M3', category: 'text-to-image' } },
+            { endpoint_id: 'm4', metadata: { display_name: 'M4', category: 'training' } },
           ],
           has_more: false,
         },

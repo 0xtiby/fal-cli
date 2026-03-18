@@ -10,11 +10,9 @@ function mockFetch(models, { hasMore = false, nextCursor } = {}) {
   return mock.fn(async () => ({
     ok: true,
     json: async () => ({
-      data: models.map((m) => ({
-        id: m.endpointId,
-        name: m.name,
-        category: m.category,
-        status: 'active',
+      models: models.map((m) => ({
+        endpoint_id: m.endpointId,
+        metadata: { display_name: m.name, category: m.category },
       })),
       has_more: hasMore,
       next_cursor: nextCursor,
