@@ -204,4 +204,127 @@ describe('generate command', () => {
     assert.equal(result.files.length, 0);
     assert.equal(result.requestId, 'req-empty');
   });
+
+  it('returns GenerateResult matching --json shape with all fields', async () => {
+    const deps = makeDeps();
+    const c = makeContext({ seed: 42, category: 'text-to-image' });
+    const result = await runGenerateHandler(c, { _deps: deps });
+
+    // Validate exact shape: model, seed, requestId, category, files[]
+    assert.deepEqual(Object.keys(result).sort(), ['category', 'files', 'model', 'requestId', 'seed'].sort());
+    assert.equal(typeof result.model, 'string');
+    assert.equal(typeof result.seed, 'number');
+    assert.equal(typeof result.requestId, 'string');
+    assert.equal(typeof result.category, 'string');
+    assert.ok(Array.isArray(result.files));
+
+    // Validate file entry shape
+    const file = result.files[0];
+    assert.equal(typeof file.localPath, 'string');
+    assert.equal(typeof file.url, 'string');
+    assert.equal(typeof file.contentType, 'string');
+    assert.equal(typeof file.width, 'number');
+    assert.equal(typeof file.height, 'number');
+  });
+
+  it('omits seed and category from result when not present', async () => {
+    const deps = makeDeps({
+      runGeneration: async () => ({
+        data: { images: [{ url: 'https://fal.media/out.png', width: 512, height: 512 }] },
+        requestId: 'req-noseed',
+      }),
+    });
+    const c = makeContext(); // no seed, no category
+    const result = await runGenerateHandler(c, { _deps: deps });
+
+    assert.ok(!('seed' in result), 'seed should be absent when not in API response');
+    assert.ok(!('category' in result), 'category should be absent when not provided');
+    assert.equal(result.model, 'fal-ai/flux/schnell');
+    assert.equal(result.requestId, 'req-noseed');
+    assert.equal(result.files.length, 1);
+  });
+
+  it('file entries omit width/height when not provided', async () => {
+    const deps = makeDeps({
+      runGeneration: async () => ({
+        data: { video: { url: 'https://fal.media/out.mp4' } },
+        requestId: 'req-video',
+      }),
+      extractOutputFiles: (data) => [{ url: data.video.url }],
+      saveFile: async (url, outputDir, modelId, opts) => ({
+        localPath: `${outputDir}/video.mp4`,
+        contentType: 'video/mp4',
+      }),
+    });
+    const c = makeContext();
+    const result = await runGenerateHandler(c, { _deps: deps });
+
+    const file = result.files[0];
+    assert.equal(file.contentType, 'video/mp4');
+    assert.ok(!('width' in file), 'width should be absent for non-image output');
+    assert.ok(!('height' in file), 'height should be absent for non-image output');
+  });
+
+  it('verbose prints response when no output files found', async () => {
+    let stderrOutput = '';
+    const responseData = { custom_field: 'unknown shape' };
+    const deps = makeDeps({
+      runGeneration: async () => ({
+        data: responseData,
+        requestId: 'req-empty-verbose',
+      }),
+      extractOutputFiles: () => [],
+      stderr: { write: (s) => { stderrOutput += s; } },
+    });
+    const c = makeContext({ verbose: true });
+    await runGenerateHandler(c, { _deps: deps });
+
+    assert.ok(stderrOutput.includes('Response:'));
+    assert.ok(stderrOutput.includes('unknown shape'));
+  });
+
+  it('SIGINT handler stops spinner and exits 0', async () => {
+    let sigintHandler;
+    const spinnerStopped = { value: false };
+    const deps = makeDeps({
+      processOn: mock.fn((event, handler) => { if (event === 'SIGINT') sigintHandler = handler; }),
+      ora: () => ({
+        start() { return this; },
+        stop() { spinnerStopped.value = true; },
+        succeed() {},
+        fail() {},
+        warn() {},
+      }),
+      runGeneration: async (input, onStatus) => {
+        // Trigger SIGINT mid-generation
+        sigintHandler();
+        return {
+          data: { images: [{ url: 'https://fal.media/out.png', width: 512, height: 512 }], seed: 1 },
+          requestId: 'req-sigint',
+        };
+      },
+    });
+    const c = makeContext();
+    await runGenerateHandler(c, { _deps: deps });
+
+    assert.ok(spinnerStopped.value, 'spinner should be stopped on SIGINT');
+    assert.equal(deps.exit.mock.calls.length, 1);
+    assert.equal(deps.exit.mock.calls[0].arguments[0], 0);
+  });
+
+  it('removes SIGINT handler even when runGeneration throws', async () => {
+    const deps = makeDeps({
+      runGeneration: async () => { throw new Error('API timeout'); },
+    });
+    const c = makeContext();
+
+    await assert.rejects(
+      () => runGenerateHandler(c, { _deps: deps }),
+      (err) => err.message === 'API timeout',
+    );
+
+    // SIGINT handler should still be cleaned up
+    assert.ok(deps.processRemoveListener.mock.calls.length >= 1);
+    assert.equal(deps.processRemoveListener.mock.calls[0].arguments[0], 'SIGINT');
+  });
 });
