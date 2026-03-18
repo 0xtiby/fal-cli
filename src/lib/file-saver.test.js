@@ -30,8 +30,36 @@ describe('file-saver extensionFromContentType', () => {
     assert.equal(extensionFromContentType('application/octet-stream'), 'bin');
   });
 
+  it('maps image/webp to webp', () => {
+    assert.equal(extensionFromContentType('image/webp'), 'webp');
+  });
+
+  it('maps image/gif to gif', () => {
+    assert.equal(extensionFromContentType('image/gif'), 'gif');
+  });
+
+  it('maps image/jpeg to jpg', () => {
+    assert.equal(extensionFromContentType('image/jpeg'), 'jpg');
+  });
+
+  it('maps video/webm to webm', () => {
+    assert.equal(extensionFromContentType('video/webm'), 'webm');
+  });
+
+  it('maps audio/wav to wav', () => {
+    assert.equal(extensionFromContentType('audio/wav'), 'wav');
+  });
+
+  it('maps audio/ogg to ogg', () => {
+    assert.equal(extensionFromContentType('audio/ogg'), 'ogg');
+  });
+
   it('handles content-type with charset', () => {
     assert.equal(extensionFromContentType('image/jpeg; charset=utf-8'), 'jpg');
+  });
+
+  it('returns bin for undefined', () => {
+    assert.equal(extensionFromContentType(undefined), 'bin');
   });
 });
 
@@ -51,6 +79,13 @@ describe('file-saver generateFilename', () => {
   it('uses modelSlug correctly for nested model IDs', () => {
     const name = generateFilename('fal-ai/flux/dev', 'jpg', { now: fixedDate });
     assert.ok(name.includes('flux-dev'));
+  });
+
+  it('generates sequential suffixes for multi-file output', () => {
+    const name1 = generateFilename('fal-ai/flux/schnell', 'png', { suffix: '_001', now: fixedDate });
+    const name2 = generateFilename('fal-ai/flux/schnell', 'png', { suffix: '_002', now: fixedDate });
+    assert.equal(name1, '2026-01-15_090503_flux-schnell_001.png');
+    assert.equal(name2, '2026-01-15_090503_flux-schnell_002.png');
   });
 
   it('defaults to current date when no now option', () => {
@@ -159,8 +194,60 @@ describe('file-saver saveFile', () => {
     });
 
     const outputDir = path.join(tmpDir, 'multi');
-    const result = await saveFile('https://cdn.example.com/img1.png', outputDir, 'fal-ai/flux/schnell', { suffix: '_001', _fetch: mockFetch });
+    const r1 = await saveFile('https://cdn.example.com/img1.png', outputDir, 'fal-ai/flux/schnell', { suffix: '_001', _fetch: mockFetch });
+    const r2 = await saveFile('https://cdn.example.com/img2.png', outputDir, 'fal-ai/flux/schnell', { suffix: '_002', _fetch: mockFetch });
 
-    assert.ok(result.localPath.includes('_001.png'));
+    assert.ok(r1.localPath.includes('_001.png'));
+    assert.ok(r2.localPath.includes('_002.png'));
+  });
+
+  it('creates nested output directories recursively', async () => {
+    const bytes = new Uint8Array([0x01]);
+    const mockFetch = async () => ({
+      ok: true,
+      headers: { get: () => 'image/png' },
+      arrayBuffer: async () => bytes.buffer,
+    });
+
+    const nestedDir = path.join(tmpDir, 'deep', 'nested', 'dir');
+    const result = await saveFile('https://cdn.example.com/img.png', nestedDir, 'fal-ai/flux/schnell', { _fetch: mockFetch });
+
+    assert.ok(result.localPath.startsWith(nestedDir));
+    const written = await fs.readFile(result.localPath);
+    assert.deepEqual(new Uint8Array(written), bytes);
+  });
+
+  it('retries once on HTTP error status, then succeeds', async () => {
+    let calls = 0;
+    const bytes = new Uint8Array([0x89, 0x50]);
+    const mockFetch = async () => {
+      calls++;
+      if (calls === 1) return { ok: false, status: 503, headers: { get: () => null } };
+      return {
+        ok: true,
+        headers: { get: () => 'image/png' },
+        arrayBuffer: async () => bytes.buffer,
+      };
+    };
+
+    const outputDir = path.join(tmpDir, 'retry-http');
+    const result = await saveFile('https://cdn.example.com/img.png', outputDir, 'fal-ai/flux/schnell', { _fetch: mockFetch });
+
+    assert.equal(calls, 2);
+    assert.ok(result.localPath.endsWith('.png'));
+  });
+
+  it('throws with CDN URL on double HTTP error', async () => {
+    const cdnUrl = 'https://cdn.example.com/file.png';
+    const mockFetch = async () => ({ ok: false, status: 500, headers: { get: () => null } });
+
+    await assert.rejects(
+      () => saveFile(cdnUrl, path.join(tmpDir, 'fail'), 'fal-ai/flux/schnell', { _fetch: mockFetch }),
+      (err) => {
+        assert.ok(err.message.includes(cdnUrl));
+        assert.ok(err.message.includes('500'));
+        return true;
+      }
+    );
   });
 });
