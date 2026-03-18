@@ -92,3 +92,39 @@ describe('CLI integration', () => {
     assert.ok(stdout.includes('models') || stdout.includes('interactive'), 'manifest should list commands');
   });
 });
+
+describe('CLI integration — generate command', () => {
+  it('generate --help shows usage with all flags, exits 0', async () => {
+    const { stdout, exitCode } = await runCli(['generate', '--help']);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes('--model'), 'should show --model flag');
+    assert.ok(stdout.includes('--prompt'), 'should show --prompt flag');
+    assert.ok(stdout.includes('--image'), 'should show --image flag');
+    assert.ok(stdout.includes('--size'), 'should show --size flag');
+    assert.ok(stdout.includes('--output'), 'should show --output flag');
+    assert.ok(stdout.includes('--seed'), 'should show --seed flag');
+    assert.ok(stdout.includes('--verbose'), 'should show --verbose flag');
+  });
+
+  it('generate command appears in main --help output', async () => {
+    const { stdout, exitCode } = await runCli(['--help']);
+    assert.equal(exitCode, 0);
+    assert.ok(stdout.includes('generate'), 'should list generate command');
+  });
+
+  it('missing --model shows ValidationError, exits 1', async () => {
+    const { stdout, stderr, exitCode } = await runCli(['generate', '--prompt', 'a cat']);
+    const output = stdout + stderr;
+    assert.equal(exitCode, 1);
+    assert.ok(output.includes('VALIDATION_ERROR'), 'should show VALIDATION_ERROR');
+    assert.ok(output.includes('model'), 'should mention model field');
+  });
+
+  it('missing --prompt shows ValidationError, exits 1', async () => {
+    const { stdout, stderr, exitCode } = await runCli(['generate', '--model', 'fal-ai/test']);
+    const output = stdout + stderr;
+    assert.equal(exitCode, 1);
+    assert.ok(output.includes('VALIDATION_ERROR'), 'should show VALIDATION_ERROR');
+    assert.ok(output.includes('prompt'), 'should mention prompt field');
+  });
+});
