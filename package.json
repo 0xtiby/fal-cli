@@ -1,5 +1,5 @@
 {
-  "name": "fal-cli",
+  "name": "@0xtiby/fal-cli",
   "version": "0.1.0",
   "type": "module",
   "description": "CLI tool for generating and editing images via the fal.ai API",
