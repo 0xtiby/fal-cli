@@ -175,7 +175,7 @@ export const generateCommand = Cli.create('generate', {
   options: z.object({
     model: z.string().describe('Model endpoint ID (e.g. fal-ai/flux/schnell)'),
     prompt: z.string().describe('Text prompt for generation'),
-    image: z.string().array().optional().describe('Reference image path or URL (repeatable, comma-separated)'),
+    image: z.string().array().optional().describe('Reference image: path, URL, data URI (data:image/png;base64,...), or - for stdin'),
     size: z.enum(IMAGE_SIZE_PRESETS).optional().describe('Image size preset'),
     output: z.string().optional().describe('Output directory'),
     seed: z.number().optional().describe('Seed for reproducible generation'),
