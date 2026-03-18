@@ -2,6 +2,7 @@
   "name": "@0xtiby/fal-cli",
   "version": "0.1.0",
   "type": "module",
+  "packageManager": "pnpm@9.11.0",
   "description": "CLI tool for generating and editing images via the fal.ai API",
   "bin": {
     "fal-cli": "src/index.js"
