@@ -532,4 +532,94 @@ describe('extractOutputFiles', () => {
 
     assert.deepEqual(files, []);
   });
+
+  it('extracts video with all optional metadata fields', () => {
+    const files = extractOutputFiles({
+      video: {
+        url: 'https://fal.ai/vid/out.mp4',
+        content_type: 'video/mp4',
+        file_name: 'output.mp4',
+        file_size: 1048576,
+      },
+    });
+
+    assert.equal(files.length, 1);
+    assert.deepEqual(files[0], {
+      url: 'https://fal.ai/vid/out.mp4',
+      contentType: 'video/mp4',
+      fileName: 'output.mp4',
+      fileSize: 1048576,
+    });
+  });
+
+  it('extracts audio with all optional metadata fields', () => {
+    const files = extractOutputFiles({
+      audio: {
+        url: 'https://fal.ai/aud/out.wav',
+        content_type: 'audio/wav',
+        file_name: 'speech.wav',
+        file_size: 524288,
+      },
+    });
+
+    assert.equal(files.length, 1);
+    assert.deepEqual(files[0], {
+      url: 'https://fal.ai/aud/out.wav',
+      contentType: 'audio/wav',
+      fileName: 'speech.wav',
+      fileSize: 524288,
+    });
+  });
+
+  it('extracts mixed images, video, and audio when all present', () => {
+    const files = extractOutputFiles({
+      images: [
+        { url: 'https://fal.ai/img/1.png', width: 512, height: 512 },
+        { url: 'https://fal.ai/img/2.png', width: 256, height: 256 },
+      ],
+      video: { url: 'https://fal.ai/vid/clip.mp4' },
+      audio: { url: 'https://fal.ai/aud/track.mp3', content_type: 'audio/mpeg' },
+    });
+
+    assert.equal(files.length, 4);
+    assert.equal(files[0].url, 'https://fal.ai/img/1.png');
+    assert.equal(files[1].url, 'https://fal.ai/img/2.png');
+    assert.equal(files[2].url, 'https://fal.ai/vid/clip.mp4');
+    assert.equal(files[3].url, 'https://fal.ai/aud/track.mp3');
+  });
+
+  it('finds deeply nested fal.media URL via fallback walker', () => {
+    const files = extractOutputFiles({
+      result: {
+        processing: {
+          stage1: {
+            output: { url: 'https://fal.media/files/deep/nested.png' },
+          },
+        },
+      },
+    });
+
+    assert.equal(files.length, 1);
+    assert.equal(files[0].url, 'https://fal.media/files/deep/nested.png');
+  });
+
+  it('ignores non-fal input image URLs echoed back in response', () => {
+    const files = extractOutputFiles({
+      input_image: { url: 'https://user-uploads.example.com/photo.jpg' },
+      output: { url: 'https://fal.media/files/abc/result.png' },
+    });
+
+    assert.equal(files.length, 1);
+    assert.equal(files[0].url, 'https://fal.media/files/abc/result.png');
+  });
+
+  it('returns empty array for null data', () => {
+    const files = extractOutputFiles(null);
+    assert.deepEqual(files, []);
+  });
+
+  it('returns empty array for undefined data', () => {
+    const files = extractOutputFiles(undefined);
+    assert.deepEqual(files, []);
+  });
 });

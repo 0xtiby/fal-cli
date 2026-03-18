@@ -267,6 +267,7 @@ export async function runGeneration(input, onStatus, options = {}) {
  */
 export function extractOutputFiles(data) {
   const files = [];
+  if (!data || typeof data !== 'object') return files;
 
   if (Array.isArray(data.images) && data.images.length > 0) {
     for (const img of data.images) {
@@ -282,6 +283,8 @@ export function extractOutputFiles(data) {
     files.push({
       url: data.video.url,
       ...(data.video.content_type && { contentType: data.video.content_type }),
+      ...(data.video.file_name && { fileName: data.video.file_name }),
+      ...(data.video.file_size !== undefined && { fileSize: data.video.file_size }),
     });
   }
 
@@ -289,6 +292,8 @@ export function extractOutputFiles(data) {
     files.push({
       url: data.audio.url,
       ...(data.audio.content_type && { contentType: data.audio.content_type }),
+      ...(data.audio.file_name && { fileName: data.audio.file_name }),
+      ...(data.audio.file_size !== undefined && { fileSize: data.audio.file_size }),
     });
   }
 
