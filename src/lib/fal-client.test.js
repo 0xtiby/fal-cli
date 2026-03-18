@@ -1,6 +1,10 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { listModels, listCategories, clearCache, generateImage, runGeneration, extractOutputFiles } from './fal-client.js';
+import { Readable } from 'node:stream';
+import { writeFile, unlink, mkdtemp } from 'node:fs/promises';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { listModels, listCategories, clearCache, generateImage, runGeneration, extractOutputFiles, resolveImageUrl } from './fal-client.js';
 
 /**
  * Create a mock fetch function that returns predefined responses.
@@ -621,5 +625,100 @@ describe('extractOutputFiles', () => {
   it('returns empty array for undefined data', () => {
     const files = extractOutputFiles(undefined);
     assert.deepEqual(files, []);
+  });
+});
+
+/**
+ * Create a mock fal client that captures upload calls.
+ */
+function mockFalStorage() {
+  const uploads = [];
+  return {
+    fal: {
+      storage: {
+        upload: async (blob) => {
+          const buffer = Buffer.from(await blob.arrayBuffer());
+          uploads.push({ type: blob.type, size: buffer.length, buffer });
+          return 'https://fal.media/files/uploaded/mock.png';
+        },
+      },
+    },
+    uploads,
+  };
+}
+
+describe('resolveImageUrl', () => {
+  it('returns HTTP URLs as-is', async () => {
+    const url = await resolveImageUrl('https://example.com/img.png');
+    assert.equal(url, 'https://example.com/img.png');
+  });
+
+  it('returns HTTPS URLs as-is with whitespace trimmed', async () => {
+    const url = await resolveImageUrl('  https://example.com/img.png  ');
+    assert.equal(url, 'https://example.com/img.png');
+  });
+
+  it('decodes data URI and uploads to fal storage', async () => {
+    const { fal, uploads } = mockFalStorage();
+    // 1x1 red PNG pixel as base64
+    const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==';
+    const dataUri = `data:image/png;base64,${pngBase64}`;
+
+    const url = await resolveImageUrl(dataUri, { _fal: fal });
+
+    assert.equal(url, 'https://fal.media/files/uploaded/mock.png');
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].type, 'image/png');
+    assert.equal(uploads[0].size, Buffer.from(pngBase64, 'base64').length);
+  });
+
+  it('throws on invalid data URI format', async () => {
+    const { fal } = mockFalStorage();
+    await assert.rejects(
+      () => resolveImageUrl('data:notvalid', { _fal: fal }),
+      { message: 'Invalid data URI format' },
+    );
+  });
+
+  it('reads from stdin when source is "-"', async () => {
+    const { fal, uploads } = mockFalStorage();
+    const imageData = Buffer.from([0x89, 0x50, 0x4E, 0x47]); // PNG magic bytes
+    const stdin = Readable.from([imageData]);
+
+    const url = await resolveImageUrl('-', { _fal: fal, _stdin: stdin });
+
+    assert.equal(url, 'https://fal.media/files/uploaded/mock.png');
+    assert.equal(uploads.length, 1);
+    assert.equal(uploads[0].size, 4);
+    assert.equal(uploads[0].type, 'application/octet-stream');
+  });
+
+  it('handles data URI with jpeg content type', async () => {
+    const { fal, uploads } = mockFalStorage();
+    const dataUri = 'data:image/jpeg;base64,/9j/4AAQ';
+
+    const url = await resolveImageUrl(dataUri, { _fal: fal });
+
+    assert.equal(url, 'https://fal.media/files/uploaded/mock.png');
+    assert.equal(uploads[0].type, 'image/jpeg');
+  });
+
+  it('uploads a local file with correct MIME type', async () => {
+    const { fal, uploads } = mockFalStorage();
+    const dir = await mkdtemp(join(tmpdir(), 'fal-test-'));
+    const filePath = join(dir, 'test.png');
+    const content = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A]);
+    await writeFile(filePath, content);
+
+    try {
+      const url = await resolveImageUrl(filePath, { _fal: fal });
+
+      assert.equal(url, 'https://fal.media/files/uploaded/mock.png');
+      assert.equal(uploads.length, 1);
+      assert.equal(uploads[0].type, 'image/png');
+      assert.equal(uploads[0].size, content.length);
+    } finally {
+      await unlink(filePath);
+    }
   });
 });

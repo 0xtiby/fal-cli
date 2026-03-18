@@ -1,6 +1,7 @@
 import { fal } from '@fal-ai/client';
 import { readFile } from 'node:fs/promises';
 import { resolve, extname } from 'node:path';
+import { buffer as consumeStream } from 'node:stream/consumers';
 import { loadConfig } from '../config.js';
 
 /** @typedef {Object} Model
@@ -134,32 +135,48 @@ const MIME_TYPES = {
   '.bmp': 'image/bmp',
 };
 
+function parseDataUri(dataUri) {
+  const match = dataUri.match(/^data:([^;]+);base64,(.+)$/);
+  if (!match) throw new Error('Invalid data URI format');
+  return { buffer: Buffer.from(match[2], 'base64'), contentType: match[1] };
+}
+
+function readStdin(options = {}) {
+  return consumeStream(options._stdin ?? process.stdin);
+}
+
+function uploadBuffer(falClient, buffer, contentType = 'application/octet-stream') {
+  return falClient.storage.upload(new Blob([buffer], { type: contentType }));
+}
+
 /**
- * Resolve an image source to a URL. If it's already a URL, return as-is.
- * If it's a local file path, upload it to fal.ai storage.
- * @param {string} source - URL or local file path
- * @param {{ _fal?: typeof fal }} [options]
+ * Resolve an image source to a URL. Accepts HTTP/HTTPS URLs (returned as-is),
+ * data URIs (decoded and uploaded), "-" (stdin), or local file paths.
+ * @param {string} source - URL, data URI, "-" for stdin, or local file path
+ * @param {{ _fal?: typeof fal, _stdin?: import('node:stream').Readable }} [options]
  * @returns {Promise<string>} A URL usable by fal.ai models
  */
 export async function resolveImageUrl(source, options = {}) {
   const trimmed = source.trim();
+  const falClient = options._fal ?? fal;
 
-  // If it looks like a URL, return as-is
   if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
     return trimmed;
   }
 
-  // Strip shell escape backslashes (e.g. from pasted paths like "file\ name.png")
-  const unescaped = trimmed.replace(/\\(?=[ ()'])/g, '');
-  const filePath = resolve(unescaped);
-  const buffer = await readFile(filePath);
-  const ext = extname(filePath).toLowerCase();
-  const contentType = MIME_TYPES[ext] || 'application/octet-stream';
-  const blob = new Blob([buffer], { type: contentType });
+  if (trimmed.startsWith('data:')) {
+    const { buffer, contentType } = parseDataUri(trimmed);
+    return uploadBuffer(falClient, buffer, contentType);
+  }
 
-  const falClient = options._fal ?? fal;
-  const url = await falClient.storage.upload(blob);
-  return url;
+  if (trimmed === '-') {
+    return uploadBuffer(falClient, await readStdin(options));
+  }
+
+  // Strip shell escape characters from user-provided paths
+  const filePath = resolve(trimmed.replace(/\\(?=[ ()'])/g, ''));
+  const ext = extname(filePath).toLowerCase();
+  return uploadBuffer(falClient, await readFile(filePath), MIME_TYPES[ext]);
 }
 
 /**

@@ -51,7 +51,7 @@ export function handleError(error, options = {}) {
 export function withErrorHandling(handler) {
   return async (...args) => {
     try {
-      await handler(...args);
+      return await handler(...args);
     } catch (err) {
       // If it's already a CLIError (has a code property matching our codes)
       if (err && err.code && (EXIT_CODES[err.code] !== undefined)) {
