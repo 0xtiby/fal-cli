@@ -1,6 +1,6 @@
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { listModels, listCategories, clearCache, generateImage } from './fal-client.js';
+import { listModels, listCategories, clearCache, generateImage, runGeneration, extractOutputFiles } from './fal-client.js';
 
 /**
  * Create a mock fetch function that returns predefined responses.
@@ -374,5 +374,162 @@ describe('generateImage', () => {
     assert.equal(result.url, 'https://fal.ai/img/first.png');
     assert.equal(result.width, 1024);
     assert.equal(result.height, 1024);
+  });
+});
+
+/**
+ * Create a mock fal client for runGeneration tests (includes requestId).
+ */
+function mockFalWithRequestId(result) {
+  const calls = [];
+  return {
+    fal: {
+      subscribe: async (endpointId, options) => {
+        calls.push({ endpointId, options });
+        if (options.onQueueUpdate) {
+          for (const update of result._queueUpdates ?? []) {
+            options.onQueueUpdate(update);
+          }
+        }
+        return { data: result.data, requestId: result.requestId ?? 'req-abc123' };
+      },
+    },
+    calls,
+  };
+}
+
+describe('runGeneration', () => {
+  it('returns { data, requestId } from mocked fal.subscribe', async () => {
+    const { fal: mockClient } = mockFalWithRequestId({
+      data: { images: [{ url: 'https://fal.ai/img/1.png', width: 1024, height: 768 }], seed: 42 },
+      requestId: 'req-xyz789',
+    });
+
+    const result = await runGeneration(
+      { model: 'fal-ai/flux/schnell', prompt: 'a cat' },
+      undefined,
+      { _fal: mockClient },
+    );
+
+    assert.deepEqual(result.data, {
+      images: [{ url: 'https://fal.ai/img/1.png', width: 1024, height: 768 }],
+      seed: 42,
+    });
+    assert.equal(result.requestId, 'req-xyz789');
+  });
+
+  it('passes input fields correctly to fal.subscribe', async () => {
+    const { fal: mockClient, calls } = mockFalWithRequestId({
+      data: { images: [{ url: 'https://fal.ai/img/1.png', width: 512, height: 512 }] },
+    });
+
+    await runGeneration(
+      { model: 'fal-ai/flux/schnell', prompt: 'a dog', image_size: 'landscape_16_9', seed: 42 },
+      undefined,
+      { _fal: mockClient },
+    );
+
+    assert.equal(calls[0].endpointId, 'fal-ai/flux/schnell');
+    assert.equal(calls[0].options.input.prompt, 'a dog');
+    assert.equal(calls[0].options.input.image_size, 'landscape_16_9');
+    assert.equal(calls[0].options.input.seed, 42);
+  });
+
+  it('forwards onStatus callbacks', async () => {
+    const statuses = [];
+    const { fal: mockClient } = mockFalWithRequestId({
+      _queueUpdates: [
+        { status: 'IN_QUEUE', queue_position: 2 },
+        { status: 'IN_PROGRESS' },
+      ],
+      data: { images: [{ url: 'https://fal.ai/img/1.png', width: 512, height: 512 }] },
+    });
+
+    await runGeneration(
+      { model: 'fal-ai/flux/schnell', prompt: 'test' },
+      (s) => statuses.push(s),
+      { _fal: mockClient },
+    );
+
+    assert.equal(statuses.length, 2);
+    assert.deepEqual(statuses[0], { status: 'IN_QUEUE', position: 2 });
+    assert.deepEqual(statuses[1], { status: 'IN_PROGRESS' });
+  });
+});
+
+describe('extractOutputFiles', () => {
+  it('extracts images from data.images[]', () => {
+    const files = extractOutputFiles({
+      images: [
+        { url: 'https://fal.ai/img/1.png', width: 1024, height: 768 },
+        { url: 'https://fal.ai/img/2.png', width: 512, height: 512 },
+      ],
+    });
+
+    assert.equal(files.length, 2);
+    assert.deepEqual(files[0], { url: 'https://fal.ai/img/1.png', width: 1024, height: 768 });
+    assert.deepEqual(files[1], { url: 'https://fal.ai/img/2.png', width: 512, height: 512 });
+  });
+
+  it('extracts video from data.video', () => {
+    const files = extractOutputFiles({
+      video: { url: 'https://fal.ai/vid/out.mp4', content_type: 'video/mp4' },
+    });
+
+    assert.equal(files.length, 1);
+    assert.deepEqual(files[0], { url: 'https://fal.ai/vid/out.mp4', contentType: 'video/mp4' });
+  });
+
+  it('extracts audio from data.audio', () => {
+    const files = extractOutputFiles({
+      audio: { url: 'https://fal.ai/aud/out.mp3', content_type: 'audio/mpeg' },
+    });
+
+    assert.equal(files.length, 1);
+    assert.deepEqual(files[0], { url: 'https://fal.ai/aud/out.mp3', contentType: 'audio/mpeg' });
+  });
+
+  it('extracts both images and video when present', () => {
+    const files = extractOutputFiles({
+      images: [{ url: 'https://fal.ai/img/1.png', width: 512, height: 512 }],
+      video: { url: 'https://fal.ai/vid/out.mp4' },
+    });
+
+    assert.equal(files.length, 2);
+    assert.equal(files[0].url, 'https://fal.ai/img/1.png');
+    assert.equal(files[1].url, 'https://fal.ai/vid/out.mp4');
+  });
+
+  it('returns empty array for empty data', () => {
+    const files = extractOutputFiles({});
+    assert.deepEqual(files, []);
+  });
+
+  it('falls back to walking object for fal.media CDN URLs', () => {
+    const files = extractOutputFiles({
+      result: {
+        output: { url: 'https://fal.media/files/abc/def.png' },
+      },
+    });
+
+    assert.equal(files.length, 1);
+    assert.equal(files[0].url, 'https://fal.media/files/abc/def.png');
+  });
+
+  it('falls back to walking object for v3.fal.media CDN URLs', () => {
+    const files = extractOutputFiles({
+      nested: { deep: { url: 'https://v3.fal.media/files/xyz/out.mp4' } },
+    });
+
+    assert.equal(files.length, 1);
+    assert.equal(files[0].url, 'https://v3.fal.media/files/xyz/out.mp4');
+  });
+
+  it('ignores non-CDN URLs in fallback walk', () => {
+    const files = extractOutputFiles({
+      link: { url: 'https://example.com/not-cdn.png' },
+    });
+
+    assert.deepEqual(files, []);
   });
 });
