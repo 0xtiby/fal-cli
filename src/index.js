@@ -5,6 +5,7 @@ import { loadConfig, initFalClient } from './config.js';
 import { withErrorHandling } from './lib/errors.js';
 import { modelsCommand } from './commands/models.js';
 import { interactiveCommand } from './commands/interactive.js';
+import { generateCommand } from './commands/generate.js';
 
 const run = withErrorHandling(async () => {
   const config = loadConfig();
@@ -17,6 +18,7 @@ const run = withErrorHandling(async () => {
 
   cli.command(modelsCommand);
   cli.command(interactiveCommand);
+  cli.command(generateCommand);
 
   await cli.serve();
 });
