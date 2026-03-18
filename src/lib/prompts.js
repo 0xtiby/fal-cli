@@ -71,6 +71,38 @@ export async function promptSize(defaultSize, options = {}) {
 }
 
 /**
+ * Prompt the user for one or more image sources (URL or local file path).
+ * Keeps asking until the user enters an empty line.
+ * @param {{ _input?: Function }} [options] - Internal options for testing
+ * @returns {Promise<string[]>} Array of entered image URLs or file paths
+ */
+export async function promptImageUrls(options = {}) {
+  const inputFn = options._input ?? input;
+  const sources = [];
+
+  while (true) {
+    const label = sources.length === 0
+      ? 'Enter image path or URL:'
+      : 'Add another image (leave empty to continue):';
+
+    const value = await inputFn({
+      message: label,
+      validate: (v) => {
+        if (sources.length === 0 && !v.trim()) {
+          return 'At least one image is required';
+        }
+        return true;
+      },
+    });
+
+    if (!value.trim()) break;
+    sources.push(value.trim());
+  }
+
+  return sources;
+}
+
+/**
  * Ask the user if they want to generate another image.
  * @param {{ _confirm?: Function }} [options] - Internal options for testing
  * @returns {Promise<boolean>}
