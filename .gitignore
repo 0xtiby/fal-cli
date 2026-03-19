@@ -4,3 +4,12 @@ generated/
 .env
 .npmrc
 .DS_Store
+
+# Tool-config directories
+.beads/
+.agents/
+.claude/
+.codex/
+.eni/
+.opencode/
+.worktrees/
