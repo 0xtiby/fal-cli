@@ -1,4 +1,4 @@
-# @0xtiby/fal-cli
+# fal-cli
 
 CLI tool for generating and editing images via the [fal.ai](https://fal.ai) API.
 
