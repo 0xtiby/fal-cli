@@ -6,13 +6,6 @@ generated/
 .DS_Store
 
 # Tool-config directories
-.agents/
-.claude/
-.codex/
-.eni/
-.opencode/
 .worktrees/
 
-# Dolt database files (added by bd init)
-.dolt/
-*.db
+
